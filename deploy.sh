@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# GPU Monitor Platform - One-Click Deployment Script
-# For single-server GPU monitoring and task management
+# GPU Monitor Platform - Direct Host Deployment
+# No Docker required - runs directly on the host system
 
 set -e
 
 echo "========================================="
-echo "GPU Monitor Platform Deployment"
+echo "GPU Monitor Platform - Host Deployment"
 echo "========================================="
 echo ""
 
@@ -16,11 +16,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check if running as root
-if [ "$EUID" -eq 0 ]; then
-    echo -e "${RED}Please do not run this script as root${NC}"
-    exit 1
-fi
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
 
 # Check for NVIDIA GPU
 echo "Checking for NVIDIA GPU..."
@@ -28,82 +26,102 @@ if ! command -v nvidia-smi &> /dev/null; then
     echo -e "${RED}nvidia-smi not found. Please install NVIDIA drivers first.${NC}"
     exit 1
 fi
-
 nvidia-smi --query-gpu=name --format=csv,noheader
 echo -e "${GREEN}✓ NVIDIA GPU detected${NC}"
 echo ""
 
-# Check for Docker
-echo "Checking for Docker..."
-if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}Docker not found. Installing Docker...${NC}"
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
-    rm get-docker.sh
-    echo -e "${GREEN}✓ Docker installed${NC}"
-    echo -e "${YELLOW}Please log out and log back in for Docker permissions to take effect${NC}"
-    exit 0
+# Check for Python 3
+echo "Checking for Python 3..."
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}Python 3 not found. Please install Python 3.8 or higher.${NC}"
+    exit 1
 fi
-
-echo -e "${GREEN}✓ Docker found${NC}"
+PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+echo -e "${GREEN}✓ Python $PYTHON_VERSION found${NC}"
 echo ""
 
-# Check for Docker Compose
-echo "Checking for Docker Compose..."
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${YELLOW}Docker Compose not found. Installing...${NC}"
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-    echo -e "${GREEN}✓ Docker Compose installed${NC}"
+# Check for pip and venv
+if ! python3 -c "import venv" &> /dev/null; then
+    echo -e "${YELLOW}python3-venv not found. Installing...${NC}"
+    sudo apt-get update && sudo apt-get install -y python3-venv
 fi
 
-echo -e "${GREEN}✓ Docker Compose found${NC}"
+# Create virtual environment
+echo "Creating virtual environment..."
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    echo -e "${GREEN}✓ Virtual environment created${NC}"
+else
+    echo -e "${GREEN}✓ Virtual environment already exists${NC}"
+fi
+
+# Install dependencies
+echo "Installing dependencies..."
+source venv/bin/activate
+pip install --upgrade pip -q
+pip install -r requirements.txt -q
+echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
 
 # Create necessary directories
-echo "Creating directories..."
 mkdir -p data logs logs/tasks static
-echo -e "${GREEN}✓ Directories created${NC}"
+
+# Run migrations
+echo "Running database migrations..."
+python manage.py migrate --run-syncdb -v 0
+echo -e "${GREEN}✓ Database initialized${NC}"
 echo ""
 
-# Build and start services
-echo "Building Docker image..."
-docker build -f Dockerfile.simple -t gpu-monitor:latest .
-echo -e "${GREEN}✓ Docker image built${NC}"
+# Collect static files
+python manage.py collectstatic --noinput -v 0
+echo -e "${GREEN}✓ Static files collected${NC}"
 echo ""
-
-echo "Starting services..."
-docker-compose -f docker-compose.simple.yml up -d
-echo -e "${GREEN}✓ Services started${NC}"
-echo ""
-
-# Wait for services to be ready
-echo "Waiting for services to initialize..."
-sleep 10
 
 # Create superuser
+echo "========================================="
+echo "Create admin user (Ctrl+C to skip)"
+echo "========================================="
+python manage.py createsuperuser || true
 echo ""
+
+# Ask about systemd installation
 echo "========================================="
-echo "Creating admin user..."
+echo "Auto-start on boot (systemd)"
 echo "========================================="
-docker exec -it gpu_monitor python manage.py createsuperuser
+read -p "Install systemd services for auto-start? [y/N]: " INSTALL_SYSTEMD
+if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
+    CURRENT_USER=$(whoami)
+
+    # Substitute placeholders in service files
+    sed -e "s|%USER%|$CURRENT_USER|g" \
+        -e "s|%INSTALL_DIR%|$SCRIPT_DIR|g" \
+        gpu-monitor-scheduler.service | sudo tee /etc/systemd/system/gpu-monitor-scheduler.service > /dev/null
+
+    sed -e "s|%USER%|$CURRENT_USER|g" \
+        -e "s|%INSTALL_DIR%|$SCRIPT_DIR|g" \
+        gpu-monitor-web.service | sudo tee /etc/systemd/system/gpu-monitor-web.service > /dev/null
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable gpu-monitor-scheduler gpu-monitor-web
+    sudo systemctl start gpu-monitor-scheduler gpu-monitor-web
+
+    echo -e "${GREEN}✓ Systemd services installed and started${NC}"
+    echo ""
+    echo "Manage services with:"
+    echo "  sudo systemctl status gpu-monitor-scheduler gpu-monitor-web"
+    echo "  sudo systemctl restart gpu-monitor-web"
+    echo "  sudo journalctl -u gpu-monitor-scheduler -f"
+else
+    echo ""
+    echo "Start manually with:"
+    echo -e "${GREEN}  ./start.sh${NC}"
+fi
 
 echo ""
 echo "========================================="
 echo -e "${GREEN}Deployment Complete!${NC}"
 echo "========================================="
 echo ""
-echo "Access the platform at:"
-echo -e "${GREEN}Dashboard: http://localhost:8888/${NC}"
-echo -e "${GREEN}Admin Panel: http://localhost:8888/admin/${NC}"
-echo ""
-echo "To view logs:"
-echo "  docker-compose -f docker-compose.simple.yml logs -f"
-echo ""
-echo "To stop the platform:"
-echo "  docker-compose -f docker-compose.simple.yml down"
-echo ""
-echo "To restart the platform:"
-echo "  docker-compose -f docker-compose.simple.yml restart"
+echo "Dashboard:   http://localhost:8888/"
+echo "Admin Panel: http://localhost:8888/admin/"
 echo ""

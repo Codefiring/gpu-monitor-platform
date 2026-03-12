@@ -4,73 +4,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a simplified GPU monitoring and task management platform designed for single-server deployments with multiple NVIDIA GPUs. It's based on GPUTasker but streamlined for local execution without SSH complexity.
+GPU monitoring and task management platform for single-server deployments with multiple NVIDIA GPUs. Runs directly on the host system without Docker.
 
-**Key Architecture**: Django web app + background scheduler + SQLite database + Docker deployment
+**Key Architecture**: Django web app + background scheduler + SQLite database + direct host execution
 
 ## Development Commands
 
-### Docker-based Development (Recommended)
+### Setup and Deployment
 
 ```bash
-# Build and start the platform
-docker-compose -f docker-compose.simple.yml up -d
+# Initial deployment
+./deploy.sh
 
-# View logs
-docker-compose -f docker-compose.simple.yml logs -f
+# Start platform
+./start.sh
 
-# Stop the platform
-docker-compose -f docker-compose.simple.yml down
+# Stop platform
+./stop.sh
 
-# Restart after code changes
-docker-compose -f docker-compose.simple.yml restart
+# Activate virtual environment
+source venv/bin/activate
 
-# Access container shell
-docker exec -it gpu_monitor bash
-
-# Run Django management commands
-docker exec gpu_monitor python manage.py <command>
-
-# Create superuser
-docker exec -it gpu_monitor python manage.py createsuperuser
-
-# Run migrations
-docker exec gpu_monitor python manage.py migrate
-
-# Collect static files
-docker exec gpu_monitor python manage.py collectstatic --noinput
-```
-
-### Local Development (Without Docker)
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Create directories
-mkdir -p data logs logs/tasks static
-
-# Run migrations
-python manage.py migrate
+# Run Django commands
+python manage.py <command>
 
 # Create superuser
 python manage.py createsuperuser
 
-# Start Django dev server
-python manage.py runserver 0.0.0.0:8000
+# Run migrations
+python manage.py migrate
 
-# Start scheduler (in separate terminal)
+# Collect static files
+python manage.py collectstatic --noinput
+```
+
+### Development Server
+
+```bash
+# Start Django dev server only
+source venv/bin/activate
+python manage.py runserver 0.0.0.0:8888
+
+# Start scheduler only
+source venv/bin/activate
 python scheduler.py
+
+# Start both (recommended)
+./start.sh
 ```
 
 ### Testing GPU Detection
 
 ```bash
-# Test nvidia-smi access
-docker exec gpu_monitor nvidia-smi
+# Test nvidia-smi
+nvidia-smi
 
 # Test GPU info collection
-docker exec gpu_monitor python -c "
+source venv/bin/activate
+python -c "
 import django, os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gpu_monitor.settings')
 django.setup()
@@ -79,11 +70,35 @@ print(get_local_gpu_info())
 "
 
 # Check GPU database
-docker exec gpu_monitor python manage.py shell -c "
+python manage.py shell -c "
 from gpu_app.models import GPUInfo
 for gpu in GPUInfo.objects.all():
     print(f'GPU {gpu.index}: {gpu.name} - {gpu.utilization}%')
 "
+```
+
+### Systemd Management
+
+```bash
+# Install services (run during deploy.sh)
+sudo systemctl enable gpu-monitor-scheduler gpu-monitor-web
+sudo systemctl start gpu-monitor-scheduler gpu-monitor-web
+
+# Status
+sudo systemctl status gpu-monitor-scheduler gpu-monitor-web
+
+# Restart
+sudo systemctl restart gpu-monitor-web
+
+# View logs
+sudo journalctl -u gpu-monitor-scheduler -f
+sudo journalctl -u gpu-monitor-web -f
+
+# Stop
+sudo systemctl stop gpu-monitor-scheduler gpu-monitor-web
+
+# Disable auto-start
+sudo systemctl disable gpu-monitor-scheduler gpu-monitor-web
 ```
 
 ## Architecture Overview
@@ -93,86 +108,80 @@ for gpu in GPUInfo.objects.all():
 1. **Django Web Application** (`gpu_monitor/`)
    - Settings in `gpu_monitor/settings.py`
    - URL routing in `gpu_monitor/urls.py`
-   - Uses django-simpleui for enhanced admin interface
-   - SQLite database stored in `data/db.sqlite3`
+   - Uses django-simpleui for enhanced admin
+   - SQLite database in `data/db.sqlite3`
 
 2. **GPU Monitoring App** (`gpu_app/`)
    - `models.py`: GPUInfo model stores GPU state
    - `utils.py`: `get_local_gpu_info()` queries nvidia-smi, `update_gpu_database()` syncs to DB
-   - `views.py`: `/api/gpu-status/` endpoint for real-time dashboard
-   - `admin.py`: Read-only admin interface for GPU info
+   - `views.py`: `/api/gpu-status/` endpoint for dashboard
+   - `admin.py`: Read-only admin interface
 
 3. **Task Management App** (`task_app/`)
    - `models.py`: Task and TaskLog models
-   - `utils.py`: `LocalTaskRunner` executes tasks locally with CUDA_VISIBLE_DEVICES
-   - `views.py`: Dashboard view and `/api/task-queue/` endpoint
-   - `admin.py`: Full CRUD interface for task management
+   - `utils.py`: `LocalTaskRunner` executes tasks with CUDA_VISIBLE_DEVICES
+   - `views.py`: Dashboard and `/api/task-queue/` endpoint
+   - `admin.py`: Full CRUD for tasks
 
 4. **Background Scheduler** (`scheduler.py`)
-   - Runs in separate thread/process
-   - Updates GPU info every 10 seconds (configurable)
-   - Finds pending tasks and matches them with available GPUs
-   - Spawns threads to execute tasks via `run_task()`
+   - Runs as separate process
+   - Updates GPU info every 10 seconds
+   - Matches pending tasks with available GPUs
+   - Spawns threads to execute tasks
    - Logs to `logs/scheduler.log`
 
 5. **Real-time Dashboard** (`templates/dashboard.html`)
-   - JavaScript polls `/api/gpu-status/` and `/api/task-queue/` every 5 seconds
+   - Polls `/api/gpu-status/` and `/api/task-queue/` every 5 seconds
    - Displays GPU metrics with progress bars
    - Shows active task queue
 
 ### Data Flow
 
 1. **GPU Monitoring**: scheduler.py → `update_gpu_database()` → nvidia-smi → GPUInfo model → API → Dashboard
-2. **Task Scheduling**: User creates Task in admin → scheduler.py detects pending task → `find_available_gpus()` → `LocalTaskRunner.execute()` → subprocess with CUDA_VISIBLE_DEVICES → logs to file
-3. **Task Status**: Task model status field ('pending' → 'running' → 'completed'/'failed') → displayed in admin and dashboard
+2. **Task Scheduling**: User creates Task → scheduler detects pending → `find_available_gpus()` → `LocalTaskRunner.execute()` → subprocess with CUDA_VISIBLE_DEVICES → logs
+3. **Task Status**: Task status ('pending' → 'running' → 'completed'/'failed') → admin + dashboard
 
 ### Key Design Decisions
 
-- **Local Execution**: Tasks run via subprocess.Popen with CUDA_VISIBLE_DEVICES, not SSH
-- **Thread-based Scheduler**: Each task runs in a daemon thread; scheduler tracks active threads
-- **GPU Allocation**: `find_available_gpus()` checks `is_occupied` flag and process list; supports exclusive or shared mode
-- **Logging**: Task stdout/stderr captured to `logs/tasks/task_{id}_{name}_{timestamp}.log`
-- **Database**: SQLite for simplicity (no MariaDB setup required)
+- **Direct Host Execution**: No Docker, runs directly on host with virtual environment
+- **Local Subprocess**: Tasks run via subprocess.Popen with CUDA_VISIBLE_DEVICES
+- **Thread-based Scheduler**: Each task in daemon thread; scheduler tracks active threads
+- **GPU Allocation**: Checks `is_occupied` flag and process list; supports exclusive/shared mode
+- **Logging**: Task stdout/stderr to `logs/tasks/task_{id}_{name}_{timestamp}.log`
+- **SQLite**: Simple database, no external DB server required
 
 ## Important Implementation Details
 
 ### GPU Detection and Allocation
 
-The platform uses two mechanisms to track GPU availability:
+Two mechanisms track GPU availability:
 
-1. **Process-based**: Queries nvidia-smi for running processes (via `get_local_gpu_info()`)
+1. **Process-based**: Queries nvidia-smi for running processes
 2. **Flag-based**: Sets `is_occupied=True` when task starts, `False` when done
 
-When scheduling tasks:
+Scheduling logic:
 - `exclusive_gpu=True`: GPU must have no processes AND `is_occupied=False`
 - `exclusive_gpu=False`: GPU must have enough free memory
 
 ### Task Execution Flow
 
 1. Scheduler finds pending task with highest priority
-2. `find_available_gpus()` returns list of GPU indices or None
-3. If GPUs available: `LocalTaskRunner.execute()` spawns subprocess with `CUDA_VISIBLE_DEVICES=<indices>`
+2. `find_available_gpus()` returns GPU indices or None
+3. If available: `LocalTaskRunner.execute()` spawns subprocess with `CUDA_VISIBLE_DEVICES=<indices>`
 4. Task runs in thread; `wait_for_completion()` blocks until done
-5. On completion: update task status, free GPUs, log result
+5. On completion: update status, free GPUs, log result
 
-### Docker Deployment
+### Process Management
 
-The `docker-compose.simple.yml` runs a single container that:
-- Uses privileged mode to access host GPU devices
-- Mounts `/dev` for GPU device access
-- Mounts NVIDIA driver libraries from host (`/usr/lib/x86_64-linux-gnu`, `/usr/local/cuda`)
-- Runs migrations on startup
-- Starts scheduler.py in background (`&`)
-- Starts Django dev server in foreground
-- Mounts `data/` and `logs/` for persistence
+- **start.sh**: Starts scheduler with nohup, saves PID to `.scheduler.pid`, then starts Django server
+- **stop.sh**: Kills processes by PID file or pkill
+- **Systemd**: Manages both services with auto-restart
 
-**Note**: This uses privileged mode instead of NVIDIA Container Toolkit for simpler deployment on hosts with NVIDIA drivers already installed.
+### Admin Interface
 
-### Admin Interface Customization
-
-- **GPUInfo**: Read-only (no add/delete), auto-updated by scheduler
+- **GPUInfo**: Read-only, auto-updated by scheduler
 - **Task**: Full CRUD, color-coded status badges, duration calculation
-- **TaskLog**: Read-only, auto-created by task execution
+- **TaskLog**: Read-only, auto-created during execution
 
 ## Common Modifications
 
@@ -180,39 +189,38 @@ The `docker-compose.simple.yml` runs a single container that:
 
 Edit `scheduler.py` line 107:
 ```python
-scheduler = TaskScheduler(update_interval=10)  # Change to desired seconds
+scheduler = TaskScheduler(update_interval=10)  # seconds
 ```
 
 ### Change Web Port
 
-Edit `docker-compose.simple.yml` line 8:
-```yaml
-ports:
-  - "8888:8000"  # Change 8888 to desired port
+Edit `start.sh` and `gpu-monitor-web.service`:
+```bash
+python manage.py runserver 0.0.0.0:8888  # Change 8888
 ```
 
 ### Add Email Notifications
 
-The original GPUTasker had email notifications. To re-add:
-1. Create `notification/email_notification.py` with send functions
+1. Create `notification/email_notification.py`
 2. Import in `task_app/utils.py`
-3. Call `send_task_start_email()`, `send_task_finish_email()`, etc. in `LocalTaskRunner`
+3. Call in `LocalTaskRunner.wait_for_completion()`
 
-### Support Multi-Server (Revert to GPUTasker Architecture)
+### Use Production WSGI Server
 
-This would require:
-1. Add GPUServer model
-2. Replace subprocess calls with SSH (paramiko or fabric)
-3. Add UserConfig model for SSH credentials
-4. Modify `get_local_gpu_info()` to accept host parameter
-5. Update scheduler to iterate over servers
+Replace Django dev server with gunicorn:
+```bash
+pip install gunicorn
+gunicorn gpu_monitor.wsgi:application --bind 0.0.0.0:8888 --workers 4
+```
+
+Update `start.sh` and systemd service accordingly.
 
 ## File Structure
 
 ```
 gpu_tasker/
-├── gpu_monitor/          # Django project settings
-│   ├── settings.py       # Main configuration
+├── gpu_monitor/          # Django project
+│   ├── settings.py       # Configuration
 │   └── urls.py           # URL routing
 ├── gpu_app/              # GPU monitoring
 │   ├── models.py         # GPUInfo model
@@ -221,79 +229,76 @@ gpu_tasker/
 │   └── admin.py          # Admin config
 ├── task_app/             # Task management
 │   ├── models.py         # Task, TaskLog models
-│   ├── utils.py          # LocalTaskRunner, run_task()
+│   ├── utils.py          # LocalTaskRunner
 │   ├── views.py          # Dashboard, API
 │   └── admin.py          # Admin config
 ├── templates/
-│   └── dashboard.html    # Real-time monitoring UI
-├── scheduler.py          # Background task scheduler
+│   └── dashboard.html    # Real-time UI
+├── scheduler.py          # Background scheduler
 ├── manage.py             # Django CLI
-├── requirements.txt      # Python dependencies
-├── Dockerfile.simple     # Container image
-├── docker-compose.simple.yml  # Deployment config
-└── deploy.sh             # One-click setup script
+├── requirements.txt      # Dependencies
+├── deploy.sh             # One-click setup
+├── start.sh              # Start platform
+├── stop.sh               # Stop platform
+├── gpu-monitor-scheduler.service  # Systemd service
+└── gpu-monitor-web.service        # Systemd service
 ```
 
 ## Troubleshooting
 
 ### Scheduler Not Running
 
-Check if scheduler process is active:
 ```bash
-docker exec gpu_monitor ps aux | grep scheduler
-```
+# Check process
+ps aux | grep scheduler.py
 
-If not running, restart container or run manually:
-```bash
-docker exec -d gpu_monitor python scheduler.py
+# Check PID file
+cat .scheduler.pid
+
+# Start manually
+source venv/bin/activate
+python scheduler.py &
 ```
 
 ### Tasks Stuck in Pending
 
-1. Check scheduler logs: `docker exec gpu_monitor tail -f logs/scheduler.log`
-2. Verify GPUs detected: Check admin panel → GPU Information
-3. Check GPU availability: Ensure `is_occupied=False` and no blocking processes
-4. Verify task requirements: GPU count and memory requirements must be satisfiable
+1. Check scheduler logs: `tail -f logs/scheduler.log`
+2. Verify GPUs detected: Admin panel → GPU Information
+3. Check GPU availability: Ensure `is_occupied=False`
+4. Verify requirements: GPU count and memory must be satisfiable
 
-### GPU Not Detected in Container
-
-The container uses privileged mode and mounts host GPU devices. Verify:
+### Port Already in Use
 
 ```bash
-# Check NVIDIA drivers on host
-nvidia-smi
+# Find process
+sudo lsof -i :8888
 
-# Check GPU access in container
-docker exec gpu_monitor nvidia-smi
+# Kill process
+sudo kill <PID>
 
-# If nvidia-smi not found in container, check mounts
-docker exec gpu_monitor ls -la /dev/nvidia*
-docker exec gpu_monitor ls -la /usr/local/cuda
+# Or change port in start.sh
 ```
 
-If GPU still not detected:
-1. Ensure NVIDIA drivers are installed on host
-2. Verify `/usr/local/cuda` exists on host (or adjust mount path in docker-compose.simple.yml)
-3. Check that container has privileged mode enabled
-4. Restart Docker daemon: `sudo systemctl restart docker`
+### Virtual Environment Issues
 
-### Database Locked Errors
-
-SQLite doesn't handle high concurrency well. If seeing "database is locked":
-1. Reduce scheduler update interval
-2. Add retry logic with exponential backoff
-3. Consider migrating to PostgreSQL for production
+```bash
+# Recreate venv
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
 ## API Endpoints
 
-- `GET /api/gpu-status/` - Current GPU status (used by dashboard)
+- `GET /api/gpu-status/` - Current GPU status
 - `GET /api/task-queue/` - Active tasks (pending + running)
-- `GET /admin/` - Django admin interface
+- `GET /admin/` - Django admin
 - `GET /` - Dashboard (requires login)
 
 ## Security Considerations
 
-- Tasks run with container's user permissions (root by default in Docker)
+- Tasks run with platform user's permissions
 - No command validation - users can run arbitrary commands
 - No resource limits - tasks can consume all GPU memory
 - Admin panel accessible to all authenticated users
@@ -302,7 +307,7 @@ For production:
 1. Change SECRET_KEY in settings.py
 2. Set DEBUG=False
 3. Add ALLOWED_HOSTS restriction
-4. Use HTTPS with reverse proxy
+4. Use HTTPS with reverse proxy (nginx/Apache)
 5. Implement per-user resource quotas
 6. Add command whitelist or sandboxing
-7. Run container as non-root user
+7. Use gunicorn/uwsgi instead of Django dev server

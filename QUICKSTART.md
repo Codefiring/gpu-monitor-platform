@@ -2,42 +2,44 @@
 
 ## GPU Monitor Platform - Quick Start
 
-### Prerequisites Check
+### Prerequisites
 
 ```bash
 # Check NVIDIA GPU
 nvidia-smi
 
-# Check Docker
-docker --version
-
-# Check Docker Compose
-docker-compose --version
+# Check Python 3
+python3 --version
 ```
 
-### Installation (5 minutes)
+### Installation (2 minutes)
 
 ```bash
-# 1. Navigate to the project directory
-cd /home/cyberic/Projects/gpu-monitor-platform/gpu_tasker
+# 1. Clone repository
+git clone https://github.com/Codefiring/gpu-monitor-platform.git
+cd gpu-monitor-platform
 
-# 2. Run the deployment script
+# 2. Run deployment
 ./deploy.sh
 
-# 3. Follow the prompts to create an admin user
+# 3. Follow prompts to create admin user
 ```
 
-### First Login
+### Start Platform
 
-1. Open browser: http://localhost:8888/admin/
-2. Login with your admin credentials
-3. Create additional users if needed
+```bash
+./start.sh
+```
 
-### Create Your First Task
+Platform will be available at:
+- Dashboard: http://localhost:8888/
+- Admin: http://localhost:8888/admin/
 
-1. In admin panel, go to "GPU Tasks"
-2. Click "Add GPU Task"
-3. Example configuration:
+### Create First Task
+
+1. Login to admin panel
+2. Go to "GPU Tasks" → "Add GPU Task"
+3. Example:
    ```
    Name: Test Task
    User: [your username]
@@ -47,80 +49,89 @@ cd /home/cyberic/Projects/gpu-monitor-platform/gpu_tasker
    Exclusive GPU: Yes
    Status: pending
    ```
-4. Click "Save"
+4. Save and watch it run on the dashboard
 
-### Monitor Execution
+### View Logs
 
-1. Dashboard: http://localhost:8888/
-2. Watch GPU status update in real-time
-3. See your task in the queue
-4. Task will automatically start when GPU is available
+```bash
+# Scheduler logs
+tail -f logs/scheduler.log
 
-### View Task Logs
+# Task logs
+ls logs/tasks/
+tail -f logs/tasks/task_*.log
+```
 
-1. In admin panel, go to "GPU Tasks"
-2. Click on your task
-3. Check the "Log File" field for the path
-4. Or check in: `logs/tasks/`
+### Stop Platform
+
+```bash
+./stop.sh
+```
 
 ### Common Commands
 
 ```bash
-# View all logs
-docker-compose -f docker-compose.simple.yml logs -f
+# Start
+./start.sh
 
-# Stop platform
-docker-compose -f docker-compose.simple.yml down
+# Stop
+./stop.sh
 
-# Restart platform
-docker-compose -f docker-compose.simple.yml restart
+# Check status
+ps aux | grep -E "scheduler.py|manage.py runserver"
 
-# Check GPU status
-docker exec gpu_monitor python -c "
-import django
-import os
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gpu_monitor.settings')
-django.setup()
-from gpu_app.utils import get_local_gpu_info
-print(get_local_gpu_info())
-"
+# View GPU status
+source venv/bin/activate
+python manage.py shell -c "from gpu_app.models import GPUInfo; [print(f'GPU {g.index}: {g.utilization}%') for g in GPUInfo.objects.all()]"
 ```
 
 ### Troubleshooting
 
-**Problem**: Can't access http://localhost:8888/
-
-**Solution**:
+**Can't access http://localhost:8888/**
 ```bash
-# Check if container is running
-docker ps | grep gpu_monitor
+# Check if running
+ps aux | grep "manage.py runserver"
 
 # Check logs
-docker logs gpu_monitor
+tail logs/scheduler.log
 
 # Restart
-docker-compose -f docker-compose.simple.yml restart
+./stop.sh && ./start.sh
 ```
 
-**Problem**: Tasks not running
-
-**Solution**:
-1. Check scheduler logs: `docker exec gpu_monitor tail -f logs/scheduler.log`
-2. Verify GPU is available in admin panel
-3. Check task status is "pending"
-
-**Problem**: GPU not detected
-
-**Solution**:
+**Tasks not running**
 ```bash
-# Test GPU access in container
-docker exec gpu_monitor nvidia-smi
+# Check scheduler
+ps aux | grep scheduler.py
+tail -f logs/scheduler.log
 
-# Check if NVIDIA drivers installed on host
+# Verify GPU available
+nvidia-smi
+```
+
+**GPU not detected**
+```bash
+# Test nvidia-smi
 nvidia-smi
 
-# Restart container
-docker-compose -f docker-compose.simple.yml restart
+# Test in Python
+source venv/bin/activate
+python -c "from gpu_app.utils import get_local_gpu_info; print(get_local_gpu_info())"
+```
+
+### Systemd Auto-start
+
+If you installed systemd services during deployment:
+
+```bash
+# Status
+sudo systemctl status gpu-monitor-scheduler gpu-monitor-web
+
+# Restart
+sudo systemctl restart gpu-monitor-web
+
+# View logs
+sudo journalctl -u gpu-monitor-scheduler -f
 ```
 
 ### Next Steps
@@ -129,9 +140,3 @@ docker-compose -f docker-compose.simple.yml restart
 - Create tasks for your workloads
 - Monitor GPU usage on dashboard
 - Check task logs for debugging
-
-### Support
-
-- Check README_SIMPLE.md for detailed documentation
-- Review logs for error messages
-- Ensure all prerequisites are installed
