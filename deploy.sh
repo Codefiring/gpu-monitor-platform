@@ -61,22 +61,6 @@ fi
 echo -e "${GREEN}✓ Docker Compose found${NC}"
 echo ""
 
-# Check for NVIDIA Container Toolkit
-echo "Checking for NVIDIA Container Toolkit..."
-if ! docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
-    echo -e "${YELLOW}NVIDIA Container Toolkit not found. Installing...${NC}"
-    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-    sudo apt-get update
-    sudo apt-get install -y nvidia-container-toolkit
-    sudo systemctl restart docker
-    echo -e "${GREEN}✓ NVIDIA Container Toolkit installed${NC}"
-fi
-
-echo -e "${GREEN}✓ NVIDIA Container Toolkit found${NC}"
-echo ""
-
 # Create necessary directories
 echo "Creating directories..."
 mkdir -p data logs logs/tasks static

@@ -116,8 +116,11 @@ docker-compose -f docker-compose.simple.yml restart
 # Test GPU access in container
 docker exec gpu_monitor nvidia-smi
 
-# If fails, check NVIDIA Container Toolkit
-sudo systemctl restart docker
+# Check if NVIDIA drivers installed on host
+nvidia-smi
+
+# Restart container
+docker-compose -f docker-compose.simple.yml restart
 ```
 
 ### Next Steps

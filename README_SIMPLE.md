@@ -18,7 +18,6 @@ A simplified, single-server GPU monitoring and task management platform. Perfect
 - Ubuntu 20.04+ (or similar Linux distribution)
 - NVIDIA GPU(s) with drivers installed
 - Docker and Docker Compose
-- NVIDIA Container Toolkit
 
 ## Quick Start
 
@@ -202,11 +201,11 @@ docker-compose -f docker-compose.simple.yml up -d
 ### GPU Not Detected
 
 ```bash
-# Check NVIDIA drivers
+# Check NVIDIA drivers on host
 nvidia-smi
 
-# Check Docker GPU access
-docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
+# Check GPU access in container
+docker exec gpu_monitor nvidia-smi
 ```
 
 ### Container Won't Start

@@ -158,11 +158,15 @@ When scheduling tasks:
 ### Docker Deployment
 
 The `docker-compose.simple.yml` runs a single container that:
+- Uses privileged mode to access host GPU devices
+- Mounts `/dev` for GPU device access
+- Mounts NVIDIA driver libraries from host (`/usr/lib/x86_64-linux-gnu`, `/usr/local/cuda`)
 - Runs migrations on startup
 - Starts scheduler.py in background (`&`)
 - Starts Django dev server in foreground
 - Mounts `data/` and `logs/` for persistence
-- Exposes all GPUs via `deploy.resources.reservations.devices`
+
+**Note**: This uses privileged mode instead of NVIDIA Container Toolkit for simpler deployment on hosts with NVIDIA drivers already installed.
 
 ### Admin Interface Customization
 
@@ -253,12 +257,25 @@ docker exec -d gpu_monitor python scheduler.py
 
 ### GPU Not Detected in Container
 
-Ensure NVIDIA Container Toolkit is installed and Docker has GPU access:
+The container uses privileged mode and mounts host GPU devices. Verify:
+
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
+# Check NVIDIA drivers on host
+nvidia-smi
+
+# Check GPU access in container
+docker exec gpu_monitor nvidia-smi
+
+# If nvidia-smi not found in container, check mounts
+docker exec gpu_monitor ls -la /dev/nvidia*
+docker exec gpu_monitor ls -la /usr/local/cuda
 ```
 
-If fails, reinstall NVIDIA Container Toolkit and restart Docker daemon.
+If GPU still not detected:
+1. Ensure NVIDIA drivers are installed on host
+2. Verify `/usr/local/cuda` exists on host (or adjust mount path in docker-compose.simple.yml)
+3. Check that container has privileged mode enabled
+4. Restart Docker daemon: `sudo systemctl restart docker`
 
 ### Database Locked Errors
 
