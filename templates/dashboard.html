@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Monitor Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+        }
+
+        .header p {
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .gpu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .gpu-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .gpu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .gpu-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .gpu-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-free {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-busy {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .metric {
+            margin-bottom: 15px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: white;
+            font-weight: bold;
+        }
+
+        .progress-gpu {
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+        }
+
+        .progress-memory {
+            background: linear-gradient(90deg, #2196F3, #1976D2);
+        }
+
+        .progress-temp {
+            background: linear-gradient(90deg, #FF9800, #F57C00);
+        }
+
+        .progress-power {
+            background: linear-gradient(90deg, #9C27B0, #7B1FA2);
+        }
+
+        .processes {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .processes-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .process-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        .process-user {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .task-queue {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .task-queue h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .task-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .task-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .task-info {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        .admin-link {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .admin-link:hover {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖥️ GPU Monitor Dashboard</h1>
+            <p>Real-time GPU monitoring and task management</p>
+            <a href="/admin/" class="admin-link">Go to Admin Panel</a>
+        </div>
+
+        <div class="gpu-grid" id="gpu-grid">
+            <!-- GPU cards will be inserted here -->
+        </div>
+
+        <div class="task-queue">
+            <h2>📋 Active Task Queue</h2>
+            <div id="task-list">
+                <!-- Tasks will be inserted here -->
+            </div>
+        </div>
+
+        <div class="refresh-info">
+            Auto-refreshing every 5 seconds | Last update: <span id="last-update">-</span>
+        </div>
+    </div>
+
+    <script>
+        function updateGPUStatus() {
+            fetch('/api/gpu-status/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        renderGPUs(data.gpus);
+                        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                    }
+                })
+                .catch(error => console.error('Error fetching GPU status:', error));
+        }
+
+        function updateTaskQueue() {
+            fetch('/api/task-queue/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        renderTasks(data.tasks);
+                    }
+                })
+                .catch(error => console.error('Error fetching task queue:', error));
+        }
+
+        function renderGPUs(gpus) {
+            const grid = document.getElementById('gpu-grid');
+            grid.innerHTML = '';
+
+            gpus.forEach(gpu => {
+                const isFree = gpu.processes.length === 0 && !gpu.is_occupied;
+                const card = document.createElement('div');
+                card.className = 'gpu-card';
+                card.innerHTML = `
+                    <div class="gpu-header">
+                        <div class="gpu-name">GPU ${gpu.index}: ${gpu.name}</div>
+                        <div class="gpu-status ${isFree ? 'status-free' : 'status-busy'}">
+                            ${isFree ? 'FREE' : 'BUSY'}
+                        </div>
+                    </div>
+
+                    <div class="metric">
+                        <div class="metric-label">GPU Utilization</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-gpu" style="width: ${gpu.utilization}%">
+                                ${gpu.utilization}%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric">
+                        <div class="metric-label">Memory Usage (${gpu.memory_used} / ${gpu.memory_total} MB)</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-memory" style="width: ${gpu.memory_utilization}%">
+                                ${gpu.memory_utilization}%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric">
+                        <div class="metric-label">Temperature</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-temp" style="width: ${Math.min(gpu.temperature, 100)}%">
+                                ${gpu.temperature}°C
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="metric">
+                        <div class="metric-label">Power Draw</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill progress-power" style="width: ${Math.min(gpu.power_draw / 3, 100)}%">
+                                ${gpu.power_draw}W
+                            </div>
+                        </div>
+                    </div>
+
+                    ${gpu.processes.length > 0 ? `
+                        <div class="processes">
+                            <div class="processes-title">Running Processes (${gpu.processes.length})</div>
+                            ${gpu.processes.map(proc => `
+                                <div class="process-item">
+                                    <span class="process-user">${proc.user}</span> -
+                                    ${proc.name} (PID: ${proc.pid}, ${proc.memory} MB)
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function renderTasks(tasks) {
+            const list = document.getElementById('task-list');
+
+            if (tasks.length === 0) {
+                list.innerHTML = '<p style="color: #666;">No active tasks</p>';
+                return;
+            }
+
+            list.innerHTML = tasks.map(task => `
+                <div class="task-item">
+                    <div class="task-name">${task.name}</div>
+                    <div class="task-info">
+                        User: ${task.user} |
+                        Status: ${task.status.toUpperCase()} |
+                        GPUs: ${task.gpu_count} |
+                        Priority: ${task.priority}
+                        ${task.assigned_gpus ? ` | Assigned: GPU ${task.assigned_gpus}` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Initial load
+        updateGPUStatus();
+        updateTaskQueue();
+
+        // Auto-refresh every 5 seconds
+        setInterval(() => {
+            updateGPUStatus();
+            updateTaskQueue();
+        }, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+Django==4.2.0
+django-simpleui==2024.1.1
+psutil==5.9.8
+nvidia-ml-py==12.535.133

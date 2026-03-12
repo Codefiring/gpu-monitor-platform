@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    container_name: gpu_monitor
+    ports:
+      - "8888:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /tmp:/tmp
+    environment:
+      - DJANGO_SETTINGS_MODULE=gpu_monitor.settings
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python scheduler.py &
+             python manage.py runserver 0.0.0.0:8000"
