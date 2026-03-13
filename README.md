@@ -44,13 +44,20 @@ The script will:
 
 ### 3. Start Platform
 
-**Option A: Manual Start**
+**Option A: Manual Start (no sudo required)**
 ```bash
 ./start.sh
 ```
 
-**Option B: Systemd (if installed during deployment)**
+**Option B: User-level Systemd (no sudo required)**
 ```bash
+# If installed during deployment
+systemctl --user start gpu-monitor-scheduler gpu-monitor-web
+```
+
+**Option C: System-level Systemd (requires sudo)**
+```bash
+# If installed during deployment
 sudo systemctl start gpu-monitor-scheduler gpu-monitor-web
 ```
 
@@ -98,6 +105,28 @@ tail -f logs/tasks/*.log
 
 ### Systemd Control
 
+**User-level services (no sudo required):**
+```bash
+# Status
+systemctl --user status gpu-monitor-scheduler gpu-monitor-web
+
+# Start/Stop/Restart
+systemctl --user start gpu-monitor-web
+systemctl --user stop gpu-monitor-scheduler
+systemctl --user restart gpu-monitor-web
+
+# View logs
+journalctl --user -u gpu-monitor-scheduler -f
+journalctl --user -u gpu-monitor-web -f
+
+# Disable auto-start
+systemctl --user disable gpu-monitor-scheduler gpu-monitor-web
+
+# Enable start on boot (requires sudo once)
+sudo loginctl enable-linger $(whoami)
+```
+
+**System-level services (requires sudo):**
 ```bash
 # Status
 sudo systemctl status gpu-monitor-scheduler gpu-monitor-web

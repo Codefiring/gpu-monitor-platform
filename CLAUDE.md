@@ -38,6 +38,36 @@ python manage.py migrate
 python manage.py collectstatic --noinput
 ```
 
+### Deployment Options
+
+The platform can run in three modes:
+
+**1. Manual Start (No sudo required)**
+- Use `./start.sh` and `./stop.sh` scripts
+- Services run in background with nohup
+- Must manually restart after reboot
+- Best for: Development, testing, temporary deployments
+
+**2. User-level Systemd (No sudo required)**
+- Services managed with `systemctl --user` commands
+- Auto-starts on user login (not on boot)
+- No root privileges needed
+- Services stop when user logs out (unless lingering enabled)
+- Best for: Single-user systems, development servers, sudo-restricted environments
+
+**3. System-level Systemd (Requires sudo)**
+- Services managed with `sudo systemctl` commands
+- Auto-starts on system boot
+- Runs as specified user but managed by root
+- Services persist across user sessions
+- Best for: Production servers, multi-user systems, always-on deployments
+
+**Enabling user services on boot:**
+```bash
+# Allow user services to run without login session (requires sudo once)
+sudo loginctl enable-linger $(whoami)
+```
+
 ### Development Server
 
 ```bash
@@ -79,11 +109,32 @@ for gpu in GPUInfo.objects.all():
 
 ### Systemd Management
 
-```bash
-# Install services (run during deploy.sh)
-sudo systemctl enable gpu-monitor-scheduler gpu-monitor-web
-sudo systemctl start gpu-monitor-scheduler gpu-monitor-web
+**User-level services (no sudo required):**
 
+```bash
+# Status
+systemctl --user status gpu-monitor-scheduler gpu-monitor-web
+
+# Restart
+systemctl --user restart gpu-monitor-web
+
+# View logs
+journalctl --user -u gpu-monitor-scheduler -f
+journalctl --user -u gpu-monitor-web -f
+
+# Stop
+systemctl --user stop gpu-monitor-scheduler gpu-monitor-web
+
+# Disable auto-start
+systemctl --user disable gpu-monitor-scheduler gpu-monitor-web
+
+# Enable start on boot (optional, requires sudo once)
+sudo loginctl enable-linger $(whoami)
+```
+
+**System-level services (requires sudo):**
+
+```bash
 # Status
 sudo systemctl status gpu-monitor-scheduler gpu-monitor-web
 

@@ -42,8 +42,13 @@ echo ""
 
 # Check for pip and venv
 if ! python3 -c "import venv" &> /dev/null; then
-    echo -e "${YELLOW}python3-venv not found. Installing...${NC}"
-    sudo apt-get update && sudo apt-get install -y python3-venv
+    echo -e "${RED}python3-venv not found.${NC}"
+    echo "Please install it with:"
+    echo "  sudo apt-get install python3-venv"
+    echo "Or on other systems:"
+    echo "  sudo yum install python3-venv"
+    echo "  sudo dnf install python3-venv"
+    exit 1
 fi
 
 # Create virtual environment
@@ -88,8 +93,43 @@ echo ""
 echo "========================================="
 echo "Auto-start on boot (systemd)"
 echo "========================================="
-read -p "Install systemd services for auto-start? [y/N]: " INSTALL_SYSTEMD
-if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
+echo "Choose installation mode:"
+echo "  1) User-level (no sudo required, starts on login)"
+echo "  2) System-level (requires sudo, starts on boot)"
+echo "  3) Skip (use ./start.sh manually)"
+read -p "Enter choice [1/2/3]: " SYSTEMD_CHOICE
+
+if [[ "$SYSTEMD_CHOICE" == "1" ]]; then
+    # User-level systemd services (no sudo required)
+    echo "Installing user-level systemd services..."
+
+    # Create user systemd directory
+    mkdir -p ~/.config/systemd/user
+
+    # Substitute placeholders in service files
+    sed -e "s|%INSTALL_DIR%|$SCRIPT_DIR|g" \
+        gpu-monitor-scheduler.user.service > ~/.config/systemd/user/gpu-monitor-scheduler.service
+
+    sed -e "s|%INSTALL_DIR%|$SCRIPT_DIR|g" \
+        gpu-monitor-web.user.service > ~/.config/systemd/user/gpu-monitor-web.service
+
+    systemctl --user daemon-reload
+    systemctl --user enable gpu-monitor-scheduler gpu-monitor-web
+    systemctl --user start gpu-monitor-scheduler gpu-monitor-web
+
+    echo -e "${GREEN}✓ User-level systemd services installed and started${NC}"
+    echo ""
+    echo "Manage services with:"
+    echo "  systemctl --user status gpu-monitor-scheduler gpu-monitor-web"
+    echo "  systemctl --user restart gpu-monitor-web"
+    echo "  journalctl --user -u gpu-monitor-scheduler -f"
+    echo ""
+    echo -e "${YELLOW}Note: Services start on login, not on boot${NC}"
+    echo "To enable on boot, run: sudo loginctl enable-linger $(whoami)"
+
+elif [[ "$SYSTEMD_CHOICE" == "2" ]]; then
+    # System-level systemd services (requires sudo)
+    echo "Installing system-level systemd services..."
     CURRENT_USER=$(whoami)
 
     # Substitute placeholders in service files
@@ -105,7 +145,7 @@ if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
     sudo systemctl enable gpu-monitor-scheduler gpu-monitor-web
     sudo systemctl start gpu-monitor-scheduler gpu-monitor-web
 
-    echo -e "${GREEN}✓ Systemd services installed and started${NC}"
+    echo -e "${GREEN}✓ System-level systemd services installed and started${NC}"
     echo ""
     echo "Manage services with:"
     echo "  sudo systemctl status gpu-monitor-scheduler gpu-monitor-web"

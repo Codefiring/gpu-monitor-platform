@@ -123,6 +123,19 @@ python -c "from gpu_app.utils import get_local_gpu_info; print(get_local_gpu_inf
 
 If you installed systemd services during deployment:
 
+**User-level (no sudo):**
+```bash
+# Status
+systemctl --user status gpu-monitor-scheduler gpu-monitor-web
+
+# Restart
+systemctl --user restart gpu-monitor-web
+
+# View logs
+journalctl --user -u gpu-monitor-scheduler -f
+```
+
+**System-level (requires sudo):**
 ```bash
 # Status
 sudo systemctl status gpu-monitor-scheduler gpu-monitor-web
